@@ -1,0 +1,9 @@
+python-dotenv
+google.generativeai
+langchain 
+langchain-cli 
+langchain-google-genai
+langchain-openai
+numexpr 
+pandas
+pip-tools
