@@ -2,6 +2,7 @@ black
 google.generativeai
 isort
 langchain 
+langchain_google_vertexai
 langchain-cli 
 langchain-google-genai
 langchain-openai

@@ -6,6 +6,13 @@
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	"image": "mcr.microsoft.com/devcontainers/python:3.12",
 
+	"mounts": [
+    	"source=${localEnv:HOME}/.config/gcloud,target=/gcp/config,type=bind,consistency=cached"
+  	],
+
+	"containerEnv": {
+		"GOOGLE_APPLICATION_CREDENTIALS": "/gcp/config/application_default_credentials.json"
+	},
 	"customizations": {
 		"vscode": {
 			"settings": {},

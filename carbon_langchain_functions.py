@@ -8,38 +8,38 @@ import os
 import sys
 from typing import Dict, List, Tuple, Union
 
-import numexpr as ne
 import pandas as pd
 from dotenv import load_dotenv
 
 # agents
 from langchain.agents import (
     AgentExecutor,
-    create_structured_chat_agent,
-    create_tool_calling_agent,
-    initialize_agent,
 )
 from langchain.agents.format_scratchpad import (
     format_log_to_str,
     format_to_openai_function_messages,
 )
 from langchain.agents.format_scratchpad.tools import format_to_tool_messages
-from langchain.agents.output_parsers import OpenAIFunctionsAgentOutputParser
 from langchain.agents.output_parsers.tools import ToolsAgentOutputParser
-from langchain.chains import ConversationalRetrievalChain
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from langchain.globals import set_debug, set_verbose
 
 # Import things for functions
 from langchain.pydantic_v1 import BaseModel, Field
-from langchain.tools import BaseTool, StructuredTool, tool
+from langchain.tools import BaseTool, tool
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import Runnable, RunnablePassthrough
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
+from langchain_core.runnables import RunnablePassthrough
+from enum import Enum
 
-USE_GOOGLE_GEMINI = True
+
+class LlmModel(Enum):
+    GOOGLE_GEMINI = 0
+    GOOGLE_VERTEX = 1
+    OPENAI = 2
+
+LLM_MODEL = LlmModel.GOOGLE_VERTEX
+
 
 load_dotenv()
 
@@ -127,28 +127,44 @@ conversational_memory = ConversationBufferWindowMemory(
     memory_key="chat_history", k=5, return_messages=True
 )
 
-if USE_GOOGLE_GEMINI:
-    # Get the key from g://aistudio.google.com
-    google_api_key = os.getenv("GOOGLE_API_KEY")
-    # gemini-1.5-pro - "Exception: Multiple function calls are not currently supporte"
-    # gemini-1.5-flash - Wrong Answer: The region with the lowest latency from us-west1 with a CFE over 80% is **europe-north1**
-    # gemini-1.0-pro - Wrong Answer: The region with the lowest latency from us-west1 with a CFE over 80% is asia-northeast1 with a latency of 87.56 ms.
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash", google_api_key=google_api_key
-    )
-    # Work around gemini 1.0 lack of system message
-    llm.convert_system_message_to_human = True
-else:
-    # Get the key from https://platform.openai.com/api-keys
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    llm = ChatOpenAI(
-        model="gpt-4o",
-        temperature=0,
-        max_tokens=None,
-        timeout=None,
-        max_retries=10,
-        api_key=openai_api_key,
-    )
+match LLM_MODEL:
+    case LlmModel.GOOGLE_GEMINI:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        # Get the key from g://aistudio.google.com
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+        # gemini-1.5-pro - "Exception: Multiple function calls are not currently supported"
+        # gemini-1.5-flash - Wrong Answer: The region with the lowest latency from us-west1 with a CFE over 80% is **europe-north1**" or function calls error"
+        # gemini-1.0-pro - Wrong Answer: The region with the lowest latency from us-west1 with a CFE over 80% is asia-northeast1 with a latency of 87.56 ms.
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash", 
+            google_api_key=google_api_key,
+            temperature=0,
+        )
+        # Work around gemini 1.0 lack of system message
+        llm.convert_system_message_to_human = True
+    case LlmModel.GOOGLE_VERTEX:
+        import vertexai
+        from langchain_google_vertexai import ChatVertexAI
+
+        vertexai.init(project="robsite-assistant-prod", location="us-central1")
+
+        llm  = ChatVertexAI(
+            model="gemini-1.5-flash",             
+            temperature=0,
+        )
+        #llm.convert_system_message_to_human = True
+    case LlmModel.OPENAI:
+        from langchain_openai import ChatOpenAI
+        # Get the key from https://platform.openai.com/api-keys
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        llm = ChatOpenAI(
+            model="gpt-4o",
+            temperature=0,
+            max_tokens=None,
+            timeout=None,
+            max_retries=10,
+            api_key=openai_api_key,
+        )
 
 
 # Add a debugging wrapper
@@ -170,7 +186,10 @@ class Wrapper:
         return wrapper
 
 
-llm.client = Wrapper(llm.client)
+# This seems to fail on vertext with:
+# AttributeError: 'NoneType' object has no attribute 'stream_generate_content'
+#
+# llm.client = Wrapper(llm.client)
 
 llm_with_tools = llm.bind_tools(tools=tools)
 
