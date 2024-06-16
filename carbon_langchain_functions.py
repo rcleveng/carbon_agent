@@ -39,13 +39,9 @@ from langchain_core.runnables import Runnable, RunnablePassthrough
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-USE_GOOGLE_GEMINI = False
+USE_GOOGLE_GEMINI = True
 
 load_dotenv()
-# Get the key from g://aistudio.google.com
-google_api_key = os.getenv("GOOGLE_API_KEY")
-# Get the key from https://platform.openai.com/api-keys
-openai_api_key = os.getenv("OPENAI_API_KEY")
 
 url = "https://raw.githubusercontent.com/GoogleCloudPlatform/region-carbon-info/main/data/yearly/2022.csv"
 df_cfe = pd.read_csv(url)
@@ -87,6 +83,7 @@ class CfeAllTool(BaseTool):
         return True
 
     def _to_args_and_kwargs(self, tool_input: Union[str, Dict]) -> Tuple[Tuple, Dict]:
+        """Ensure no args passed since this tool takes none"""
         print("_to_args_and_kwargs")
         return (), {}
 
@@ -131,12 +128,19 @@ conversational_memory = ConversationBufferWindowMemory(
 )
 
 if USE_GOOGLE_GEMINI:
+    # Get the key from g://aistudio.google.com
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    # gemini-1.5-pro - "Exception: Multiple function calls are not currently supporte"
+    # gemini-1.5-flash - Wrong Answer: The region with the lowest latency from us-west1 with a CFE over 80% is **europe-north1**
+    # gemini-1.0-pro - Wrong Answer: The region with the lowest latency from us-west1 with a CFE over 80% is asia-northeast1 with a latency of 87.56 ms.
     llm = ChatGoogleGenerativeAI(
         model="gemini-1.5-flash", google_api_key=google_api_key
     )
-    # Work around gemini 1.0 limitation and general silliness
+    # Work around gemini 1.0 lack of system message
     llm.convert_system_message_to_human = True
 else:
+    # Get the key from https://platform.openai.com/api-keys
+    openai_api_key = os.getenv("OPENAI_API_KEY")
     llm = ChatOpenAI(
         model="gpt-4o",
         temperature=0,
