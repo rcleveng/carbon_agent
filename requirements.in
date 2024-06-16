@@ -1,5 +1,6 @@
-python-dotenv
+black
 google.generativeai
+isort
 langchain 
 langchain-cli 
 langchain-google-genai
@@ -7,3 +8,4 @@ langchain-openai
 numexpr 
 pandas
 pip-tools
+python-dotenv
