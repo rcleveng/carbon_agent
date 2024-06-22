@@ -38,7 +38,7 @@ class LlmModel(Enum):
     GOOGLE_VERTEX = 1
     OPENAI = 2
 
-LLM_MODEL = LlmModel.GOOGLE_VERTEX
+LLM_MODEL = LlmModel.GOOGLE_GEMINI
 
 
 load_dotenv()
@@ -59,13 +59,14 @@ df_merged.drop(columns=['region'], inplace=True)
 
 
 SYSTEM = '''
+You are an expert in networking and carbon emmissions.  Answer questions about latency and
+carbon free energy (CFE) percentages to the best of your abilities.  A region can not
+be the closest region to itself.
+
 Question: What is the closest region to asia-east1 with a CFE over 30%
 
-Answer: I need to use the cfe_all tool to see the CFE for every region.
-Answer: I need to use the latency_tool to find the latency frmo asia-east1 to all other regions
-Answer: I see asia-east2 is closest region but CFE is 28%
-Answer: I see asia-northeast1 is closest region but CFE is 16%
-Answer: I see asia-northeast2 is closest region and CFE is 32%
+Answer: I need to use the cfe_latency_tool to find the latency from asia-east1 to all other regions
+Answer: I see asia-northeast2 is closest region and CFE is 32% which is over 30%
 Answer: asia-northeast2 is the closest region to asia-east1 with a CFE of 32%
 '''
 
@@ -90,10 +91,10 @@ class NoParameterInput(BaseModel):
 def cfe_latency_tool(region) -> str:
     """fetch the network latency from a google cloud region 'sending_region' to all other regions and the CFE for the receiving_region region"""
     print(f"executing latency_tool for {region}")
-    ms_formatter = lambda x: "%4.2f ms" % x
-
+    ms_formatter = lambda x: "%4.1f ms" % x
+    cfe_formatter = lambda x: "%d%%" % x * 100
     return (
-        df_latency.loc[df_latency["sending_region"] == region]
+        df_merged[df_merged["sending_region"] == region]
         .sort_values(by="milliseconds")
         .to_string(
             columns=["receiving_region", "milliseconds", "cfe"],
@@ -132,7 +133,10 @@ class CfeAllTool(BaseTool):
 
 @tool("latency_tool", args_schema=GcpRegionSchema, return_direct=False)
 def latency(region) -> str:
-    """fetch the network latency from a given google cloud region to all other regions"""
+    """
+    Fetch the network latency from a given google cloud region to all other regions.
+    The output is in the format: 'REGION LATENCY CFE' 
+    """
     print(f"executing latency_tool for {region}")
     ms_formatter = lambda x: "%4.2f ms" % x
 
@@ -150,7 +154,7 @@ def latency(region) -> str:
 
 
 cfe_all = CfeAllTool()
-tools = [cfe_latency_tool, cfe_all, latency]
+tools = [cfe_latency_tool] #, cfe_all, latency]
 
 # initialize conversational memory
 conversational_memory = ConversationBufferWindowMemory(
@@ -279,12 +283,12 @@ def execute_query(query: str) -> Tuple[str, str]:
     return out["output"], None
 
 
-# print(
-#     execute_query(
-#         "What is the region with the lowest latency from us-west1 with a CFE over 80%?"
-#     )
-# )
-#sys.exit(0)
+print(
+    execute_query(
+        "What is the region with the lowest latency from us-west1 with a CFE over 80%?"
+    )
+)
+sys.exit(0)
 
 while True:
     query = input("Input: ")
