@@ -45,22 +45,35 @@ load_dotenv()
 
 url = "https://raw.githubusercontent.com/GoogleCloudPlatform/region-carbon-info/main/data/yearly/2022.csv"
 df_cfe = pd.read_csv(url)
-# print('cfe:')
 df_cfe.rename(
     columns={"Google Cloud Region": "region", "Google CFE": "cfe"}, inplace=True
 )
-
+df_cfe.drop(columns=["Location", "Grid carbon intensity (gCO2eq / kWh)"], inplace=True)
 
 url = (
     "https://raw.githubusercontent.com/rcleveng/notebooks/main/gcp_latency_20240613.csv"
 )
 df_latency = pd.read_csv(url)
+df_merged = pd.merge(df_latency, df_cfe, left_on='receiving_region', right_on='region')
+df_merged.drop(columns=['region'], inplace=True)
 
+
+SYSTEM = '''
+Question: What is the closest region to asia-east1 with a CFE over 30%
+
+Answer: I need to use the cfe_all tool to see the CFE for every region.
+Answer: I need to use the latency_tool to find the latency frmo asia-east1 to all other regions
+Answer: I see asia-east2 is closest region but CFE is 28%
+Answer: I see asia-northeast1 is closest region but CFE is 16%
+Answer: I see asia-northeast2 is closest region and CFE is 32%
+Answer: asia-northeast2 is the closest region to asia-east1 with a CFE of 32%
+'''
 
 prompt = ChatPromptTemplate.from_messages(
     [
+        ("system", f"{SYSTEM}"),
         MessagesPlaceholder("chat_history", optional=True),
-        ("user", "{input}"),
+        ("user", "Question: {input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad"),
     ]
 )
@@ -73,6 +86,23 @@ class GcpRegionSchema(BaseModel):
 class NoParameterInput(BaseModel):
     pass
 
+@tool("cfe_latency_tool", args_schema=GcpRegionSchema, return_direct=False)
+def cfe_latency_tool(region) -> str:
+    """fetch the network latency from a google cloud region 'sending_region' to all other regions and the CFE for the receiving_region region"""
+    print(f"executing latency_tool for {region}")
+    ms_formatter = lambda x: "%4.2f ms" % x
+
+    return (
+        df_latency.loc[df_latency["sending_region"] == region]
+        .sort_values(by="milliseconds")
+        .to_string(
+            columns=["receiving_region", "milliseconds", "cfe"],
+            formatters={"milliseconds": ms_formatter},
+            index=False,
+            index_names=False,
+            header=False,
+        )
+    )
 
 class CfeAllTool(BaseTool):
     name = "cfe_all"
@@ -89,11 +119,7 @@ class CfeAllTool(BaseTool):
 
     def _run(self):
         print("executing cfe-all-tool")
-        # print(df_cfe.head(5))
-        df_cfe.rename(
-            columns={"Google Cloud Region": "region", "Google CFE": "cfe"}, inplace=True
-        )
-        return df_cfe[["region", "cfe"]].to_string(
+        return df_cfe[["region", "cfe"]].sort_values(by='cfe', ascending=False).to_string(
             columns=["region", "cfe"],
             index=False,
             index_names=False,
@@ -110,17 +136,21 @@ def latency(region) -> str:
     print(f"executing latency_tool for {region}")
     ms_formatter = lambda x: "%4.2f ms" % x
 
-    return df_latency.loc[df_latency["sending_region"] == region].to_string(
-        columns=["receiving_region", "milliseconds"],
-        formatters={"milliseconds": ms_formatter},
-        index=False,
-        index_names=False,
-        header=False,
+    return (
+        df_latency.loc[df_latency["sending_region"] == region]
+        .sort_values(by="milliseconds")
+        .to_string(
+            columns=["receiving_region", "milliseconds"],
+            formatters={"milliseconds": ms_formatter},
+            index=False,
+            index_names=False,
+            header=False,
+        )
     )
 
 
 cfe_all = CfeAllTool()
-tools = [cfe_all, latency]
+tools = [cfe_latency_tool, cfe_all, latency]
 
 # initialize conversational memory
 conversational_memory = ConversationBufferWindowMemory(
@@ -249,12 +279,12 @@ def execute_query(query: str) -> Tuple[str, str]:
     return out["output"], None
 
 
-print(
-    execute_query(
-        "What is the region with the lowest latency from us-west1 with a CFE over 80%?"
-    )
-)
-sys.exit(0)
+# print(
+#     execute_query(
+#         "What is the region with the lowest latency from us-west1 with a CFE over 80%?"
+#     )
+# )
+#sys.exit(0)
 
 while True:
     query = input("Input: ")
